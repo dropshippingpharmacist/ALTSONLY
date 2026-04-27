@@ -4,6 +4,8 @@
 ENHANCED PURE TCT BOT - 100% TCT RULES + ADVANCED PDF CONCEPTS
 ================================================================================
 
+TRACKING ONLY: BTC, ETH, SOLANA
+
 ORIGINAL LECTURES 1-8 (100% PRESERVED):
   ✓ 6-Candle Rule (2-2-2) - inside bars don't count
   ✓ MS low/high confirmed ONLY when opposite TOUCHED
@@ -99,6 +101,8 @@ SECTION E - CONTEXT BUILDING:
   ✓ B&B (Bread & Butter) and Compression (FM-FM) boosters
 
 ================================================================================
+
+TRACKING ONLY: BTC, ETH, SOLANA
 """
 
 import math
@@ -124,12 +128,12 @@ warnings.filterwarnings("ignore")
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-TELEGRAM_BOT_TOKEN = "8359543474:AAHHry6W6mUADH66IA0J2VmIWkflkqXOQf8"
-TELEGRAM_CHAT_ID = "5747777199"
+TELEGRAM_BOT_TOKEN = "8013335919:AAHCzQWVwP2Jsv0klNtTzF7qUX6PuD_gYZ0"
+TELEGRAM_CHAT_ID = "5747777199"  # Original (kept for compatibility)
+TELEGRAM_CHAT_IDS = ["5747777199", "-1002841352895"]  # Both chats
 
 EXCHANGE_NAME = "bitget"
 MIN_VOLUME_USD = 100000
-MAX_PAIRS_TO_SCAN = 100
 SCAN_INTERVAL_SECONDS = 60
 
 ACCOUNT_SIZE = 10000
@@ -143,6 +147,16 @@ MAX_SIGNALS_PER_DAY = 30
 # Range Duration (Section 8.4 - Variable 2)
 MIN_RANGE_DURATION_HOURS = 24
 DAILY_RANGE_MIN_HOURS = 15  # Exception C.6
+
+# =============================================================================
+# NEW: ONLY TRACK THESE SYMBOLS
+# =============================================================================
+TRACKED_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+SYMBOL_NAMES = {
+    "BTC/USDT": "BITCOIN",
+    "ETH/USDT": "ETHEREUM",
+    "SOL/USDT": "SOLANA"
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1756,24 +1770,11 @@ class DataFetcher:
         })
         self._cache: Dict[str, Tuple[pd.DataFrame, float]] = {}
         self._ttl = 180
-        self._top_coins_cache = None
-        self._cache_time = 0
     
-    def get_all_altcoins(self) -> List[str]:
-        """HARDCODED TOP 10 COINS - No API calls needed"""
-        # Just return these 10 coins
-        return [
-            "BTC/USDT",
-            "ETH/USDT", 
-            "XRP/USDT",
-            "SOL/USDT",
-            "ADA/USDT",
-            "LINK/USDT",
-            "DOGE/USDT",
-            "DOT/USDT",
-            "MATIC/USDT",
-            "LTC/USDT"
-        ]
+    def get_tracked_symbols(self) -> List[str]:
+        """Return only the tracked symbols (BTC, ETH, SOL)"""
+        log.info(f"📊 Tracking {len(TRACKED_SYMBOLS)} coins: {', '.join(SYMBOL_NAMES.values())}")
+        return TRACKED_SYMBOLS
     
     def fetch_ohlcv(self, symbol: str, timeframe: str = "4h", limit: int = 200) -> pd.DataFrame:
         key = f"{symbol}_{timeframe}_{limit}"
@@ -1827,46 +1828,63 @@ class TelegramNotifier:
         if not self.can_send(s.symbol):
             log.info(f"⏳ Signal skipped for {s.symbol} (cooldown/daily limit)")
             return False
-        
-        emoji = "🟢" if s.direction == Direction.LONG else "🔴"
-        direction_text = "LONG (BUY)" if s.direction == Direction.LONG else "SHORT (SELL)"
-        
-        grade_emoji = {"A+": "🏆", "A": "⭐", "A-": "📊", "B": "📉", "C": "❌"}
-        grade_display = grade_emoji.get(s.setup_grade.value, "") + s.setup_grade.value
-        
-        ehp_badge = " 🔥 EHP" if s.is_ehp else ""
-        test_badge = " 🧪 TEST" if s.has_test_phase else ""
-        
-        msg = f"""{emoji} <b>ENHANCED TCT SIGNAL | {direction_text} | {s.symbol}</b>
-━━━━━━━━━━━━━━━━━━━━
-📊 <b>Model:</b> {s.model.value}{ehp_badge}{test_badge}
-🏅 <b>Grade:</b> {grade_display} | <b>Context:</b> {s.context_rank.value}
-━━━━━━━━━━━━━━━━━━━━
-💰 <b>Entry:</b> {self._format_price(s.entry)}
-🛑 <b>Stop:</b>  {self._format_price(s.stop)}
-🎯 <b>Target:</b> {self._format_price(s.target)}
-━━━━━━━━━━━━━━━━━━━━
-📈 <b>TP1 (50%):</b> {self._format_price(s.tp1)}
-📈 <b>TP2 (75%):</b> {self._format_price(s.tp2)}
-📈 <b>TP3 (100%):</b> {self._format_price(s.tp3)}
-━━━━━━━━━━━━━━━━━━━━
-📊 <b>R:R:</b> 1:{s.rr:.1f} | <b>Conf:</b> {int(s.confidence*100)}%
-💵 <b>Position:</b> ${s.position_size:,.0f}
-⏱️ <b>Range Duration:</b> {s.range_duration_hours:.1f}h
-━━━━━━━━━━━━━━━━━━━━
-💡 <b>QRZ:</b> {s.qrz.quality_score:.0%} | <b>Breaker:</b> {s.breaker_quality.value}
-💡 <b>Reason:</b> {s.reason}
 
-🔔 <i>Enhanced TCT - A+ and A setups only</i>"""
+        # Get display name
+        display_name = SYMBOL_NAMES.get(s.symbol + "/USDT", s.symbol)
         
-        try:
-            r = requests.post(self._url, json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-            if r.status_code == 200:
-                self.record_signal(s.symbol)
-                return True
-        except:
-            pass
-        return False
+        # Extract LTF from reason string
+        ltf = "Unknown"
+        if 'LTF(' in s.reason:
+            import re
+            match = re.search(r'LTF\(([^)]+)\)', s.reason)
+            if match:
+                ltf = match.group(1)
+
+        # Green for LONG, Red for SHORT
+        if s.direction == Direction.LONG:
+            direction_text = "🟢 LONG"
+        else:
+            direction_text = "🔴 SHORT"
+
+        # Add EHP and Test Phase indicators
+        ehp_mark = "🔥 EHP " if s.is_ehp else ""
+        test_mark = "🧪 TEST " if s.has_test_phase else ""
+        
+        msg = f"""{direction_text} {display_name} ({s.symbol})
+    {ehp_mark}{test_mark}
+    💰 Entry: {self._format_price(s.entry)}
+    🛑 Stop: {self._format_price(s.stop)}
+    🎯 Target: {self._format_price(s.target)}
+    📈 TP1: {self._format_price(s.tp1)}
+    📈 TP2: {self._format_price(s.tp2)}
+    📈 TP3: {self._format_price(s.tp3)}
+    📊 R:R 1:{s.rr:.1f} | Conf: {int(s.confidence*100)}%
+    ⏱️ LTF: {ltf} | Grade: {s.setup_grade.value}
+    📊 Model: {s.model.value}"""
+
+        # Send to BOTH chats
+        chat_ids = ["5747777199", "-1002841352895"]
+    
+        success = False
+        for chat_id in chat_ids:
+            try:
+                r = requests.post(
+                    self._url, 
+                    json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"}, 
+                    timeout=10
+                )
+                if r.status_code == 200:
+                    success = True
+                    log.info(f"✅ Signal sent to chat {chat_id}")
+                else:
+                    log.warning(f"⚠️ Failed to send to {chat_id}: {r.status_code}")
+            except Exception as e:
+                log.error(f"❌ Error sending to {chat_id}: {e}")
+    
+        if success:
+            self.record_signal(s.symbol)
+    
+        return success
 
 
 # =============================================================================
@@ -1883,11 +1901,12 @@ class EnhancedTCTScanner:
     
     def _banner(self):
         print("\n" + "=" * 80)
-        print("  ENHANCED PURE TCT BOT - ALL ADVANCED CONCEPTS INTEGRATED")
+        print("  ENHANCED PURE TCT BOT - TRACKING BTC, ETH, SOLANA")
         print("=" * 80)
         print("  ORIGINAL LECTURES 1-8: 100% PRESERVED")
         print("  ADVANCED PDF CONCEPTS: FULLY INTEGRATED")
         print("=" * 80)
+        print("  🎯 TRACKING ONLY: BITCOIN | ETHEREUM | SOLANA")
         print("  ✅ Levels 1,2,3 | QRZ (Primary/Internal) | 4-Variable Checklist")
         print("  ✅ EHP Detection | Test Phase | Extended Tap | Correct Tab One")
         print("  ✅ TCT Creating TCT | D-EEC/A-EEC | Range Duration Rules")
@@ -1926,29 +1945,32 @@ class EnhancedTCTScanner:
         self._cycle += 1
         ts = datetime.now().strftime("%H:%M:%S")
         
-        coins = ["BTC/USDT", "ETH/USDT", "XRP/USDT", "SOL/USDT", "ADA/USDT", "LINK/USDT", "DOGE/USDT", "DOT/USDT", "MATIC/USDT", "LTC/USDT"]
+        symbols = self.data.get_tracked_symbols()
         print(f"\n{'─' * 60}")
-        print(f"🔄 CYCLE #{self._cycle} [{ts}] | Scanning {len(coins)} coins")
+        print(f"🔄 CYCLE #{self._cycle} [{ts}] | Scanning {len(symbols)} coins (BTC, ETH, SOL only)")
         print(f"   🎯 Filter: A+ and A setups only")
         
         found = []
-        for symbol in coins:
+        for symbol in symbols:
+            display_name = SYMBOL_NAMES.get(symbol, symbol.replace('/USDT', ''))
+            print(f"   📊 Analyzing {display_name}...")
+            
             signal = self._analyze_symbol(symbol)
             if signal:
                 # ========== EASY FILTER - JUST 3 CHECKS ==========
                 # 1. Skip if confidence less than 90%
                 if signal.confidence < 0.90:
-                    print(f"  ❌ {signal.symbol} - Confidence {int(signal.confidence*100)}% < 90%")
+                    print(f"  ❌ {display_name} - Confidence {int(signal.confidence*100)}% < 90%")
                     continue
         
                 # 2. Skip if RR less than 3.0
                 if signal.rr < 3.0:
-                    print(f"  ❌ {signal.symbol} - RR 1:{signal.rr:.1f} < 1:3")
+                    print(f"  ❌ {display_name} - RR 1:{signal.rr:.1f} < 1:3")
                     continue
         
                 # 3. Skip if using 5m (check reason string for 'LTF(5m)')
                 if 'LTF(5m)' in signal.reason or 'LTF(5m)' in str(signal.reason):
-                    print(f"  ❌ {signal.symbol} - Using 5m LTF (need 15m+)")
+                    print(f"  ❌ {display_name} - Using 5m LTF (need 15m+)")
                     continue
                 # ================================================
         
@@ -1960,7 +1982,7 @@ class EnhancedTCTScanner:
                 ehp_mark = "🔥" if signal.is_ehp else ""
                 test_mark = "🧪" if signal.has_test_phase else ""
         
-                print(f"\n  ✅ {label} {signal.symbol} {grade_display} {ehp_mark}{test_mark}")
+                print(f"\n  ✅ {label} {display_name} {grade_display} {ehp_mark}{test_mark}")
                 print(f"     Model: {signal.model.value}")
                 print(f"     Entry: ${signal.entry:.4f} | Stop: ${signal.stop:.4f}")
                 print(f"     Target: ${signal.target:.4f} | R:R 1:{signal.rr:.1f}")
@@ -1970,11 +1992,16 @@ class EnhancedTCTScanner:
                 self.tg.send_signal(signal)
     
     def run(self):
-        self.tg._url and requests.post(self.tg._url, json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": "🚀 <b>ENHANCED TCT BOT STARTED</b>\n\n✅ Original Lectures 1-8 (100%)\n✅ Advanced PDF Concepts (100%)\n✅ Levels 1-3, QRZ, EHP, Test Phase\n✅ Context Grading A+ to C\n\n🎯 <b>ONLY A+ and A SETUPS SENT</b>\n\n🔔 Waiting for high-grade signals..."
-        }, timeout=10)
-        
+        # Send startup message to BOTH chats
+        startup_msg = f"🚀 <b>ENHANCED BOT STARTED</b>\n\n✅ Original Lectures 1-8 (100%)\n✅ Advanced PDF Concepts (100%)\n✅ Levels 1-3, Phase\n✅ Context Grading A+ to C\n\n🎯 <b>TRACKING: BTC, ETH, SOL ONLY</b>\n🎯 <b>ONLY A+ and A SETUPS SENT</b>\n\n🔔 Waiting for high-grade signals..."
+    
+        for chat_id in TELEGRAM_CHAT_IDS:
+            try:
+                requests.post(self.tg._url, json={"chat_id": chat_id, "text": startup_msg, "parse_mode": "HTML"}, timeout=10)
+                log.info(f"✅ Startup message sent to chat {chat_id}")
+            except Exception as e:
+                log.error(f"❌ Failed to send startup message to {chat_id}: {e}")
+    
         while True:
             try:
                 self.run_once()
